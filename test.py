@@ -19,15 +19,54 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 硬编码场馆ID映射
+LIBRARY_MAPPING = {
+    "1": "53",  # 主馆
+    "2": "18",  # 基础馆
+    "3": "37",  # 农医馆
+}
+
+# 硬编码楼层ID映射 (按场馆分类)
+FLOOR_MAPPING = {
+    "53": {  # 主馆
+        "2": "54",  # 二层
+        "3": "55",  # 三层
+        "4": "56",  # 四层
+        "5": "57",  # 五层
+    },
+    "18": {  # 基础馆
+        "1": "22",  # 一层
+        "2": "23",  # 二层
+        "3": "19",  # 三层
+    },
+    "37": {  # 农医馆
+        "1": "44",  # 一层
+        "2": "45",  # 二层
+        "3": "46",  # 三层
+    }
+}
+
+# 硬编码区域ID映射 (按楼层分类)
+AREA_MAPPING = {
+    "54": ["58", "59"],  # 主馆二层: 二层南, 二层北
+    "55": ["60", "61", "62"],  # 主馆三层: 三层东, 三层南, 三层北
+    "56": ["63", "64", "65", "66"],  # 主馆四层: 四层东, 四层南, 四层西, 四层北
+    "57": ["67"],  # 主馆五层: 五层东
+    "22": ["39"],  # 基础馆一层: 一层书库
+    "23": ["40"],  # 基础馆二层: 二层书库
+    "19": ["21"],  # 基础馆三层: 301信息共享空间
+    "44": ["47"],  # 农医馆一层: 112李摩西阅览室
+    "45": ["48", "49", "50"],  # 农医馆二层: 207中文图书阅览室, 209中文图书阅览室, 211中文图书阅览室
+    "46": ["51", "52"],  # 农医馆三层: 320外文图书阅览室, 322中外文现刊阅览室
+}
+
 def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='浙江大学图书馆座位预约脚本')
     parser.add_argument('--username', '-u', required=True, help='统一身份认证用户名')
     parser.add_argument('--password', '-p', required=True, help='统一身份认证密码')
-    parser.add_argument('--premises', '-pr', required=True, help='场馆ID')
-    parser.add_argument('--storey', '-st', required=True, help='楼层ID')
-    parser.add_argument('--area', '-a', required=True, help='区域ID')
-    parser.add_argument('--seat', '-s', help='座位ID，如不指定则自动选择第一个可用座位')
+    parser.add_argument('--library', '-l', required=True, help='场馆编号(1=主馆, 2=基础馆, 3=农医馆)')
+    parser.add_argument('--floor', '-f', required=True, help='楼层编号(1=一层, 2=二层, 3=三层, 4=四层, 5=五层)')
     parser.add_argument('--retry', '-r', type=int, default=3, help='重试次数')
     parser.add_argument('--delay', '-d', type=int, default=5, help='重试延迟(秒)')
     return parser.parse_args()
@@ -127,8 +166,8 @@ def get_available_date(session, authorization):
         logger.error(f"获取可预约日期时发生错误: {e}")
         return None
 
-def verify_location_ids(session, authorization, date, premises_id, storey_id, area_id):
-    """验证场馆、楼层和区域ID是否有效"""
+def verify_location_ids(session, authorization, date, premises_id, storey_id):
+    """验证场馆和楼层ID是否有效"""
     user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.58'
     booking_select_premises_url = 'http://booking.lib.zju.edu.cn/reserve/index/quickSelect'
     
@@ -169,18 +208,6 @@ def verify_location_ids(session, authorization, date, premises_id, storey_id, ar
         
         if not storey_valid:
             logger.error(f"无效的楼层ID: {storey_id}")
-            return False
-        
-        # 验证区域ID
-        area_valid = False
-        for i in booking_select_premises_data['data']['area']:
-            if area_id == i['id'] and storey_id == i['parentId']:
-                area_valid = True
-                logger.info(f"选择区域: {i['name']} (ID: {i['id']}, 余量: {i['free_num']}/{i['total_num']})")
-                break
-        
-        if not area_valid:
-            logger.error(f"无效的区域ID: {area_id}")
             return False
         
         return True
@@ -253,7 +280,7 @@ def get_available_seats(session, authorization, area_id, booking_date):
         logger.info(f"当前区域共 {free_num} 个空闲座位, {using_num} 个使用中座位")
         
         if free_num == 0:
-            logger.error("当前区域座位已满")
+            logger.info("当前区域座位已满")
             return None
         
         return {
@@ -310,6 +337,19 @@ def main():
     # 创建会话
     session = requests.session()
     
+    # 将用户输入的简化编号转换为实际ID
+    if args.library not in LIBRARY_MAPPING:
+        logger.error(f"无效的场馆编号: {args.library}，有效值为: 1(主馆), 2(基础馆), 3(农医馆)")
+        sys.exit(1)
+    
+    premises_id = LIBRARY_MAPPING[args.library]
+    
+    if args.floor not in FLOOR_MAPPING.get(premises_id, {}):
+        logger.error(f"无效的楼层编号: {args.floor}，或该场馆不存在此楼层")
+        sys.exit(1)
+    
+    storey_id = FLOOR_MAPPING[premises_id][args.floor]
+    
     # 登录
     logger.info(f"正在使用用户名 {args.username} 登录...")
     login_resp = login(session, args.username, args.password)
@@ -327,8 +367,8 @@ def main():
         sys.exit(1)
     logger.info(f"预约日期: {date}")
     
-    # 验证场馆、楼层和区域ID
-    if not verify_location_ids(session, authorization, date, args.premises, args.storey, args.area):
+    # 验证场馆和楼层ID
+    if not verify_location_ids(session, authorization, date, premises_id, storey_id):
         sys.exit(1)
     
     # 获取预约时间段信息
@@ -336,58 +376,49 @@ def main():
     if not booking_date:
         sys.exit(1)
     
-    # 获取可用座位
-    seats_info = get_available_seats(session, authorization, args.area, booking_date)
-    if not seats_info:
+    # 获取该楼层的所有区域
+    area_ids = AREA_MAPPING.get(storey_id, [])
+    if not area_ids:
+        logger.error(f"该楼层没有可用区域")
         sys.exit(1)
     
-    # 选择座位
-    selected_seat = None
-    if args.seat:
-        # 用户指定了座位ID
-        for seat in seats_info['free_seats']:
-            if args.seat == seat['id']:
-                selected_seat = seat
-                break
+    # 尝试预约每个区域的座位
+    for area_id in area_ids:
+        logger.info(f"正在尝试区域ID: {area_id}")
         
-        if not selected_seat:
-            logger.error(f"指定的座位ID {args.seat} 不可用")
-            # 如果指定的座位不可用，尝试自动选择第一个可用座位
-            if seats_info['free_seats']:
-                selected_seat = seats_info['free_seats'][0]
-                logger.info(f"自动选择座位: {selected_seat['name']} (ID: {selected_seat['id']})")
-            else:
-                sys.exit(1)
-    else:
-        # 自动选择第一个可用座位
-        if seats_info['free_seats']:
-            selected_seat = seats_info['free_seats'][0]
-            logger.info(f"自动选择座位: {selected_seat['name']} (ID: {selected_seat['id']})")
-        else:
-            logger.error("没有可用座位")
-            sys.exit(1)
-    
-    # 预约座位
-    retry_count = 0
-    while retry_count < args.retry:
-        logger.info(f"正在预约座位 {selected_seat['name']} (ID: {selected_seat['id']})...")
-        result = book_seat(session, authorization, selected_seat['id'], seats_info['segment'])
+        # 获取可用座位
+        seats_info = get_available_seats(session, authorization, area_id, booking_date)
+        if not seats_info or not seats_info['free_seats']:
+            logger.info(f"区域 {area_id} 没有可用座位，尝试下一个区域")
+            continue
         
-        if result and 'msg' in result:
-            logger.info(f"预约结果: {result['msg']}")
+        # 选择第一个可用座位
+        selected_seat = seats_info['free_seats'][0]
+        logger.info(f"选择座位: {selected_seat['name']} (ID: {selected_seat['id']})")
+        
+        # 预约座位
+        retry_count = 0
+        while retry_count < args.retry:
+            logger.info(f"正在预约座位 {selected_seat['name']} (ID: {selected_seat['id']})...")
+            result = book_seat(session, authorization, selected_seat['id'], seats_info['segment'])
             
-            # 如果预约成功或者错误信息不是因为座位被占用，则退出循环
-            if '成功' in result['msg'] or ('已经' in result['msg'] and '被预约' not in result['msg']):
-                break
+            if result and 'msg' in result:
+                logger.info(f"预约结果: {result['msg']}")
+                
+                # 如果预约成功或者错误信息不是因为座位被占用，则退出循环
+                if '成功' in result['msg'] or ('已经' in result['msg'] and '被预约' not in result['msg']):
+                    logger.info(f"预约成功！场馆: {premises_id}, 楼层: {storey_id}, 区域: {area_id}, 座位: {selected_seat['id']}")
+                    return
+            
+            retry_count += 1
+            if retry_count < args.retry:
+                logger.info(f"预约失败，{args.delay}秒后进行第{retry_count+1}次重试...")
+                time.sleep(args.delay)
         
-        retry_count += 1
-        if retry_count < args.retry:
-            logger.info(f"预约失败，{args.delay}秒后进行第{retry_count+1}次重试...")
-            time.sleep(args.delay)
+        logger.info(f"区域 {area_id} 预约失败，尝试下一个区域")
     
-    if retry_count >= args.retry:
-        logger.error(f"预约失败，已达到最大重试次数 {args.retry}")
-        sys.exit(1)
+    logger.error("所有区域都无法预约座位")
+    sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-name: 图书馆座位预约
+name: 浙江大学图书馆座位预约
 
 on:
   workflow_dispatch:
@@ -9,18 +9,14 @@ on:
       password:
         description: '统一身份认证密码'
         required: true
-      premises:
-        description: '场馆ID'
+      library:
+        description: '场馆(1=主馆, 2=基础馆, 3=农医馆)'
         required: true
-      storey:
-        description: '楼层ID'
+        default: '1'
+      floor:
+        description: '楼层(1=一层, 2=二层, 3=三层, 4=四层, 5=五层)'
         required: true
-      area:
-        description: '区域ID'
-        required: true
-      seat:
-        description: '座位ID（可选，不填则自动选择）'
-        required: false
+        default: '3'
 
 jobs:
   book-seat:
@@ -43,7 +39,5 @@ jobs:
         run: |
           python test.py --username "${{ github.event.inputs.username }}" \
                         --password "${{ github.event.inputs.password }}" \
-                        --premises "${{ github.event.inputs.premises }}" \
-                        --storey "${{ github.event.inputs.storey }}" \
-                        --area "${{ github.event.inputs.area }}" \
-                        --seat "${{ github.event.inputs.seat }}"
+                        --library "${{ github.event.inputs.library }}" \
+                        --floor "${{ github.event.inputs.floor }}"
