@@ -392,30 +392,25 @@ def main():
             logger.info(f"区域 {area_id} 没有可用座位，尝试下一个区域")
             continue
         
-        # 选择第一个可用座位
-        selected_seat = seats_info['free_seats'][0]
-        logger.info(f"选择座位: {selected_seat['name']} (ID: {selected_seat['id']})")
-        
-        # 预约座位
-        retry_count = 0
-        while retry_count < args.retry:
-            logger.info(f"正在预约座位 {selected_seat['name']} (ID: {selected_seat['id']})...")
+        # 遍历所有空闲座位
+        for index, selected_seat in enumerate(seats_info['free_seats']):
+            logger.info(f"尝试座位 [{index+1}/{len(seats_info['free_seats'])}]: {selected_seat['name']} (ID: {selected_seat['id']})")
+            
+            # 预约座位（单次尝试）
+            logger.info(f"正在预约座位 {selected_seat['name']}...")
             result = book_seat(session, authorization, selected_seat['id'], seats_info['segment'])
             
             if result and 'msg' in result:
-                logger.info(f"预约结果: {result['msg']}")
-                
-                # 如果预约成功或者错误信息不是因为座位被占用，则退出循环
-                if '成功' in result['msg'] or ('已经' in result['msg'] and '被预约' not in result['msg']):
+                if '成功' in result['msg']:
                     logger.info(f"预约成功！场馆: {premises_id}, 楼层: {storey_id}, 区域: {area_id}, 座位: {selected_seat['id']}")
                     return
+                else:
+                    logger.info(f"座位 {selected_seat['name']} 预约失败: {result['msg']}")
             
-            retry_count += 1
-            if retry_count < args.retry:
-                logger.info(f"预约失败，{args.delay}秒后进行第{retry_count+1}次重试...")
-                time.sleep(args.delay)
+            # 添加短暂间隔避免频繁请求
+            time.sleep(1)
         
-        logger.info(f"区域 {area_id} 预约失败，尝试下一个区域")
+        logger.info(f"区域 {area_id} 所有座位尝试失败，尝试下一个区域")
     
     logger.error("所有区域都无法预约座位")
     sys.exit(1)
