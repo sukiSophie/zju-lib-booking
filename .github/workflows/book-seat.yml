@@ -6,7 +6,15 @@ name: 自动预约座位
 on:
   workflow_dispatch:
     inputs:
-      # 接收 "刷新时间" 作为输入参数 (对应信息.md)
+      # [修改] 新增 "预约模式" 参数 (对应 main.py 的第4个参数)
+      # 对应 sys.argv[3]
+      scope_mode:
+        description: '预约模式 (0=仅二层, 1=全部)'
+        required: false
+        default: '0' # 默认值 '0' (仅二层)
+      
+      # [修改] "刷新时间" 现在是第5个参数
+      # 对应 sys.argv[4]
       refresh_time:
         description: '刷新间隔时间 (秒)'
         required: false
@@ -39,8 +47,12 @@ jobs:
       # 第4步：运行预约脚本
       - name: 4. 运行预约脚本
         run: |
-          # 执行 main.py
-          # - ${{ secrets.STUDENT_ID }}：安全地从 Secrets 获取学号
-          # - ${{ secrets.PASSWORD }}：安全地从 Secrets 获取密码
-          # - ${{ inputs.refresh_time }}：从手动触发时输入的参数获取刷新时间
-          python3 main.py ${{ secrets.STUDENT_ID }} ${{ secrets.PASSWORD }} ${{ inputs.refresh_time }}
+          # [修改] 调整参数顺序以匹配 main.py
+          #
+          # 用法: python3 main.py <学号> <密码> [模式] [刷新间隔]
+          #
+          # - ${{ secrets.STUDENT_ID }}：安全地从 Secrets 获取学号 (sys.argv[1])
+          # - ${{ secrets.PASSWORD }}：安全地从 Secrets 获取密码 (sys.argv[2])
+          # - ${{ inputs.scope_mode }}：从手动触发时输入的参数获取 "模式" (sys.argv[3])
+          # - ${{ inputs.refresh_time }}：从手动触发时输入的参数获取 "刷新时间" (sys.argv[4])
+          python3 main.py ${{ secrets.STUDENT_ID }} ${{ secrets.PASSWORD }} ${{ inputs.scope_mode }} ${{ inputs.refresh_time }}

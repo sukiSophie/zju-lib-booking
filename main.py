@@ -582,7 +582,7 @@ class ZjuLibAPI:
         返回:
             dict: API 返回的 JSON 数据，或 None。
         """
-        logger.debug(f"\n--- 正在请求 API: 区域列表 (日期: {date}, 页码: {page}) ---")
+        logger.debug(f"\n--- C正在请求 API: 区域列表 (日期: {date}, 页码: {page}) ---")
         
         # 构造 Payload (匹配 list.txt 抓包文件)
         # 注意：authorization 字段在 payload 和 header 中同时存在
@@ -634,7 +634,7 @@ class ZjuLibAPI:
         调用“获取区域座位列表” API (seat)
         (根据
         """
-        logger.info(f"\n--- 正在请求 API: 座位列表 (区域ID: {area_id}, 日期: {date}) ---")
+        logger.info(f"\n--- G正在请求 API: 座位列表 (区域ID: {area_id}, 日期: {date}, Segment: {segment_id}) ---")
         
         # 构造 Payload (根据
         api_payload = {
@@ -682,7 +682,7 @@ class ZjuLibAPI:
         调用“确认预约座位” API (confirm)
         (根据
         """
-        logger.info(f"\n--- 正在请求 API: 预约座位 (SeatID: {seat_id}) ---")
+        logger.info(f"\n--- 正在请求 API: 预约座位 (SeatID: {seat_id}, SegmentID: {segment_id}) ---")
         
         # 1. 获取加密 payload
         try:
@@ -731,12 +731,18 @@ class ZjuLibAPI:
 
 
 # ----------------------------------------------------------------------
-# 5. 主程序业务逻辑 (已修改)
+# 5. 主程序业务逻辑
 # ----------------------------------------------------------------------
 
-# 5.1 策略常量 (根据
-# (区域名称到 segment_id 的映射)
-SEGMENT_MAP = {
+# 5.1 策略常量 (未修改)
+
+# 定义 Segment ID 的基准日期 (根据用户提供的信息)
+BASE_DATE_STR = "2025-11-06"
+BASE_DATE = date(2025, 11, 6) # 使用顶部导入的 date
+
+# --- [模式 1 - 全部区域] ---
+# (区域名称到 *基准日* segment_id 的映射)
+BASE_SEGMENT_MAP = {
     "二层南": 1386529,
     "二层北": 1387307,
     "三层东": 1388085,
@@ -758,62 +764,54 @@ AREA_PRIORITY_LIST = [
     "五层东"
 ]
 
-def get_area_priority(area: Dict[str, Any]) -> int:
-    """辅助函数：获取排序的 key, 数字越小优先级越高。"""
-    area_name = area.get('name', '')
-    try:
-        # 返回其在优先级列表中的索引 (索引越小, 优先级越高)
-        return AREA_PRIORITY_LIST.index(area_name)
-    except ValueError:
-        return 999 # 不在列表中的区域, 优先级最低
+# --- [模式 0 - 仅二层] ---
+LIMITED_SEGMENT_MAP = {
+    "二层南": 1386529,
+    "二层北": 1387307,
+}
 
-# 5.2 辅助函数：获取所有分页的空闲区域
-async def get_all_available_areas(api: ZjuLibAPI, date: str) -> list:
+LIMITED_PRIORITY_LIST = [
+    "二层北", "二层南", 
+]
+
+
+# 5.2 辅助函数：获取所有分页的空闲区域 (未修改)
+async def get_all_available_areas(api: ZjuLibAPI, date: str, segment_map: dict) -> list:
     """
-    获取所有分页中 'free_num' > 0 且在 SEGMENT_MAP 中定义的区域列表。
+    (修改) 获取 *第1页* 中 'free_num' > 0 且在 *指定* segment_map 中定义的区域列表。
+    (根据用户反馈，所有目标区域都在第1页，移除分页逻辑以提高效率)
     """
     all_available_areas = []
-    current_page = 1
-    total_pages = 1 # 先假设只有1页
     
-    while current_page <= total_pages:
-        logger.info(f"--- 正在扫描区域列表第 {current_page} / {total_pages} 页... ---")
-        list_data = await api.list(date=date, page=current_page, size=10) #
-        
-        if not list_data or list_data.get("code") != 0: #
-            logger.error(f"获取第 {current_page} 页区域列表失败。")
-            break # 跳出循环
-        
-        data_content = list_data.get("data", {})
-        
-        # 更新总页数
-        if current_page == 1: # 仅在第一页时更新总页数
-            total_pages = data_content.get("totalPage", 1) #
-            logger.info(f"总共有 {total_pages} 页区域。")
-        
-        areas_on_page = data_content.get("list", [])
-        if not areas_on_page:
-            logger.info("本页无区域数据。")
-            break # 没有数据了
-            
-        # 筛选有空座位的区域
-        for area in areas_on_page:
-            area_name = area.get('name')
-            
-            # --- [修改点] ---
-            # 根据用户要求，只添加 (1)有空位 且 (2)在我们关心的SEGMENT_MAP中的区域
-            if area.get("free_num", 0) > 0 and area_name in SEGMENT_MAP:
-                all_available_areas.append(area)
-            # --- [修改结束] ---
-                
-        current_page += 1
+    logger.info("--- 正在扫描区域列表第 1 页 (仅扫描第1页)... ---")
+    list_data = await api.list(date=date, page=1, size=10) # 固定请求第1页
     
+    if not list_data or list_data.get("code") != 0: #
+        logger.error("获取第 1 页区域列表失败。")
+        return [] # 返回空列表
+    
+    data_content = list_data.get("data", {})
+    areas_on_page = data_content.get("list", [])
+    
+    if not areas_on_page:
+        logger.info("第 1 页无区域数据。")
+        return [] # 返回空列表
+        
+    # 筛选有空座位的区域
+    for area in areas_on_page:
+        area_name = area.get('name')
+        
+        # 使用传入的 segment_map 进行过滤
+        if area.get("free_num", 0) > 0 and area_name in segment_map: #
+            all_available_areas.append(area)
+            
     return all_available_areas
 
-# 5.3 主监控和预约逻辑
-async def run_booking_logic(studentid: str, password: str, refresh_time: float):
+# 5.3 主监控和预约逻辑 (未修改)
+async def run_booking_logic(studentid: str, password: str, refresh_time: float, scope_mode: int):
     """
     运行主业务逻辑：登录、监控、抢座。
+    (新增 scope_mode 参数)
     """
     
     # 确保 lxml 已安装
@@ -822,6 +820,34 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
     except ImportError:
         logger.error("错误: 缺少必要的库 lxml。请运行 pip3 install lxml")
         return
+
+    # --- [新增] 根据 scope_mode 选择策略 ---
+    active_segment_map: dict
+    active_priority_list: list
+    area_filter_name: str # 用于日志
+    
+    if scope_mode == 0:
+        logger.info("--- 运行模式: [0] 仅监控二层北/二层南 ---")
+        active_segment_map = LIMITED_SEGMENT_MAP
+        active_priority_list = LIMITED_PRIORITY_LIST
+        area_filter_name = "(主馆-仅二层)"
+    else:
+        logger.info("--- 运行模式: [1] 监控主馆所有区域 (保持不变) ---")
+        active_segment_map = BASE_SEGMENT_MAP
+        active_priority_list = AREA_PRIORITY_LIST
+        area_filter_name = "(主馆-全部)"
+
+    # --- [新增] 定义内部辅助函数，使其能访问 active_priority_list ---
+    def get_area_priority_internal(area: Dict[str, Any]) -> int:
+        """辅助函数：获取排序的 key, 数字越小优先级越高。"""
+        area_name = area.get('name', '')
+        try:
+            # 返回其在 *激活的* 优先级列表中的索引
+            return active_priority_list.index(area_name)
+        except ValueError:
+            return 999 # 不在列表中的区域, 优先级最低
+    # --- [修改结束] ---
+
 
     # 使用 async with 管理 ZjuLibClient 的生命周期
     async with ZjuLibClient(trust_env=True) as client:
@@ -839,43 +865,61 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
         api = ZjuLibAPI(client.session)
         
         # 3. 开始监控循环
-        logger.info(f"\n--- [步骤 5] 认证成功，开始监控主馆空余座位 (刷新间隔: {refresh_time}s) ---")
+        logger.info(f"\n--- [步骤 5] 认证成功，开始监控{area_filter_name}空余座位 (刷新间隔: {refresh_time}s) ---")
         
         while True:
             try:
-                today_str = date.today().strftime("%Y-%m-%d")
+                # 3.1 计算动态 Segment ID 偏移量
+                # (这是用户关心的第二点：在所有API请求前计算偏移量)
+                current_date_obj = date.today()
+                today_str = current_date_obj.strftime("%Y-%m-%d")
                 
-                # 3.1 获取所有(主馆的)有空座位的区域
-                available_areas = await get_all_available_areas(api, today_str)
+                day_offset = (current_date_obj - BASE_DATE).days
+                
+                logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 基准日期: {BASE_DATE_STR} | 当前日期: {today_str} | 偏移量: {day_offset} 天")
+
+                
+                # 3.2 获取所有(目标范围的)有空座位的区域
+                # (修改: 传入 active_segment_map)
+                # (修改: 此函数现在只查第1页)
+                available_areas = await get_all_available_areas(api, today_str, active_segment_map)
                 
                 if not available_areas:
-                    logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 未发现(主馆)空余座位。 {refresh_time} 秒后重试...")
+                    # (修改: 使用 area_filter_name)
+                    logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 未发现{area_filter_name}空余座位。 {refresh_time} 秒后重试...")
                     await asyncio.sleep(refresh_time)
                     continue # 继续下一次监控
                 
-                # 3.2 按照优先级排序
-                available_areas.sort(key=get_area_priority)
+                # 3.3 按照优先级排序
+                # (修改: 使用内部定义的辅助函数)
+                available_areas.sort(key=get_area_priority_internal)
                 
-                logger.info(f"发现 {len(available_areas)} 个(主馆)有空座位的区域，已按优先级排序:")
+                logger.info(f"发现 {len(available_areas)} 个{area_filter_name}有空座位的区域，已按优先级排序:")
                 for i, area in enumerate(available_areas):
                     logger.info(f"  {i+1}. {area.get('name')} (空位数: {area.get('free_num')})")
 
-                # 3.3 遍历高优先级区域，尝试预约
+                # 3.4 遍历高优先级区域，尝试预约
                 for area in available_areas:
                     area_id = area.get("id")
                     area_name = area.get("name")
                     
-                    # 获取 segment_id (由于 get_all_available_areas 的过滤，这里一定能找到)
-                    segment_id = SEGMENT_MAP.get(area_name)
-                    if not segment_id:
+                    # 3.4.1 动态计算 Segment ID
+                    # (修改: 使用 active_segment_map)
+                    base_segment_id = active_segment_map.get(area_name)
+                    if not base_segment_id:
                         # 理论上不会执行到这里，但作为安全校验保留
-                        logger.warning(f"警告: 区域 '{area_name}' (ID: {area_id}) 在 SEGMENT_MAP 中未定义，跳过。")
+                        logger.warning(f"警告: 区域 '{area_name}' (ID: {area_id}) 在 active_segment_map 中未定义，跳过。")
                         continue
                     
-                    logger.info(f"\n--- 正在检查高优先级区域: {area_name} (ID: {area_id}) ---")
+                    # 核心逻辑：应用偏移量 (此计算速度极快)
+                    dynamic_segment_id = base_segment_id + day_offset
                     
-                    # 3.4 获取该区域的详细座位列表
-                    seats_data = await api.get_seats(area_id, str(segment_id), today_str) #
+                    logger.info(f"\n--- 正在检查高优先级区域: {area_name} (ID: {area_id}) ---")
+                    logger.info(f"    Segment ID 计算: {base_segment_id} (基准) + {day_offset} (偏移) = {dynamic_segment_id}")
+
+                    
+                    # 3.5 获取该区域的详细座位列表
+                    seats_data = await api.get_seats(area_id, str(dynamic_segment_id), today_str) #
                     
                     if not seats_data or seats_data.get('code') != 1: #
                         logger.warning(f"获取 {area_name} 的座位列表失败，尝试下一个区域。")
@@ -886,7 +930,7 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
                         logger.warning(f"{area_name} 宣称有空位(free_num>0)，但座位列表为空。")
                         continue
                         
-                    # 3.5 查找第一个空闲座位
+                    # 3.6 查找第一个空闲座位
                     # 根据
                     target_seat = None
                     for seat in all_seats:
@@ -895,12 +939,16 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
                             target_seat = seat
                             break
                     
-                    # 3.6 找到空位，发起预约
+                    # 3.7 找到空位，使用动态 segment_id 发起预约
+                    if not target_seat:
+                        logger.warning(f"区域 {area_name} 列表不为空, 但未找到 status='1' 的座位 (可能均被占用或预约中), 尝试下一个区域。")
+                        continue
+                        
                     seat_id_to_book = target_seat.get('id')
                     seat_no = target_seat.get('no')
-                    logger.info(f"在 {area_name} 找到空闲座位: {seat_no} (ID: {seat_id_to_book})，尝试预约...")
+                    logger.info(f"在 {area_name} 找到空闲座位: {seat_no} (ID: {seat_id_to_book})，使用 Segment ID {dynamic_segment_id} 尝试预约...")
                     
-                    book_result = await api.book_seat(str(seat_id_to_book), str(segment_id)) #
+                    book_result = await api.book_seat(str(seat_id_to_book), str(dynamic_segment_id)) #
                     
                     if book_result and book_result.get('code') == 1: #
                         # 预约成功！
@@ -915,7 +963,7 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
                             return # 已经有预约了，退出
                         # 否则，继续尝试下一个区域
                 
-                # 3.7 如果所有区域都尝试失败了
+                # 3.8 如果所有区域都尝试失败了
                 logger.info(f"已尝试所有发现的空闲区域，但均未成功。 {refresh_time} 秒后重新扫描...")
                 await asyncio.sleep(refresh_time)
 
@@ -927,34 +975,52 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float):
 def main():
     """主程序入口：解析命令行参数并启动 asyncio 循环。"""
     
-    # 策略: python3 main.py <学号> <密码> [刷新时间(秒)]
-    if len(sys.argv) < 3 or len(sys.argv) > 4:
+    # [修改] 策略: python3 main.py <学号> <密码> [模式(0/1)] [刷新时间(秒)]
+    if len(sys.argv) < 3 or len(sys.argv) > 5:
         print("错误: 参数不足。")
-        print("用法: python3 main.py <学号> <密码> [刷新间隔秒数, 默认1.0]")
-        logger.error("用法: python3 main.py <学号> <密码> [刷新间隔秒数, 默认1.0]")
+        # [修改] 更新帮助文本
+        print("用法: python3 main.py <学号> <密码> [模式, 0=仅二层, 1=全部, 默认0] [刷新间隔秒数, 默认1.0]")
+        logger.error("用法: python3 main.py <学号> <密码> [模式, 0=仅二层, 1=全部, 默认0] [刷新间隔秒数, 默认1.0]")
         sys.exit(1)
 
     studentid = sys.argv[1]
     password = sys.argv[2]
     
+    # [修改] 颠倒默认值和解析的顺序
+    scope_mode = 0 # 默认 0 (仅二层)
     refresh_time = 1.0 # 默认 1 秒
-    if len(sys.argv) == 4:
+    
+    # [修改] 解析第 4 个参数 (模式, sys.argv[3])
+    if len(sys.argv) >= 4:
         try:
-            refresh_time = float(sys.argv[3])
+            scope_mode = int(sys.argv[3]) # <--- [修正] 模式现在是 argv[3]
+            if scope_mode not in [0, 1]:
+                logger.warning(f"模式 (第4个参数 '{sys.argv[3]}') 必须是 0 或 1，已重置为 0。")
+                scope_mode = 0
+        except ValueError:
+            logger.error(f"错误: 模式 (第4个参数 '{sys.argv[3]}') 必须是一个数字 (0 或 1)。")
+            sys.exit(1)
+
+    # [修改] 解析第 5 个参数 (刷新时间, sys.argv[4])
+    if len(sys.argv) == 5:
+        try:
+            refresh_time = float(sys.argv[4]) # <--- [修正] 刷新时间现在是 argv[4]
             if refresh_time <= 0:
                 logger.warning("刷新时间必须大于0，已重置为 1.0 秒。")
                 refresh_time = 1.0
         except ValueError:
-            logger.error("错误: 刷新时间必须是一个数字 (例如 0.5 或 2)。")
+            logger.error(f"错误: 刷新时间 (第5个参数 '{sys.argv[4]}') 必须是一个数字 (例如 0.5 或 2)。")
             sys.exit(1)
     
     logger.info(f"--- 启动预约程序 ---")
     logger.info(f"  学号: {studentid}")
     logger.info(f"  刷新间隔: {refresh_time} 秒")
+    logger.info(f"  预约模式: {scope_mode} ({'仅二层' if scope_mode == 0 else '全部区域'})")
     
     try:
         # 启动主业务逻辑
-        asyncio.run(run_booking_logic(studentid, password, refresh_time))
+        # [修改] 传入 scope_mode
+        asyncio.run(run_booking_logic(studentid, password, refresh_time, scope_mode))
     except KeyboardInterrupt:
         logger.info("\n--- 用户手动中断程序 ---")
     except Exception as e:
