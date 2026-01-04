@@ -922,10 +922,10 @@ async def run_booking_logic(studentid: str, password: str, refresh_time: float, 
             while session_valid:
                 try:
                     # 3.1 获取当前日期
-                    current_date_obj = date.today()
-                    today_str = current_date_obj.strftime("%Y-%m-%d")
+                    now_beijing = datetime.datetime.now(BEIJING_TZ)
+                    today_str = now_beijing.strftime("%Y-%m-%d")
 
-                    logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 当前日期: {today_str}")
+                    logger.info(f"[{now_beijing.strftime('%H:%M:%S')}] 当前日期: {today_str}")
 
                     # 3.2 获取所有(目标范围的)有空座位的区域
                     # 注意：这里我们传入BUILD_ID_MAP作为segment_map参数，因为get_all_available_areas函数需要它来过滤区域
