@@ -3,7 +3,7 @@ import json
 import sys
 import logging
 from pathlib import Path
-from datetime import date 
+from datetime import date, timedelta, timezone
 import io
 import urllib.parse # 确保导入
 from typing import Optional, Dict, Any, List
@@ -24,7 +24,7 @@ from Crypto.Util.Padding import pad
 
 # 1. 从 JavaScript 代码中获取的硬编码 IV
 HARDCODED_IV = "ZZWBKJ_ZHIHUAWEI"
-
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 def generate_dynamic_key() -> str:
     """
@@ -32,8 +32,8 @@ def generate_dynamic_key() -> str:
     规则: [YYYYMMDD] + [reverse(YYYYMMDD)]
     这会产生一个 16 字节的 Key。
     """
-    # 1. 获取本地日期的 YYYYMMDD 字符串
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
+    now_beijing = datetime.datetime.now(BEIJING_TZ)
+    date_str = now_beijing.strftime("%Y%m%d")
     
     # 2. 反转字符串
     reversed_str = date_str[::-1]
@@ -297,7 +297,7 @@ class ZjuLibClient:
         
         try: 
             # 1.1 访问登录页，获取 execution
-            logger.info(f"1.1 访问目标网站以触发登录重定向: {login_trigger_url}")
+            logger.info(f"1.1 访问目标网站以触发登录重定向")
             login_response = await self._session.get(url=login_trigger_url, timeout=10)
             
             # 1.2 获取 RSA 公钥
@@ -373,7 +373,7 @@ class ZjuLibClient:
         else:
             # 登录成功，保存最终的 URL，它包含 cas_token
             self._final_cas_url = response.url
-            logger.info(f"登录并交换 Ticket 成功！最终重定向到: {self._final_cas_url}")
+            logger.info(f"登录并交换 Ticket 成功!")
             
             # 验证 PHPSESSID 是否已成功设置
             phpsessid = self._session.cookies.get("PHPSESSID", domain="booking.lib.zju.edu.cn")
@@ -435,7 +435,7 @@ class ZjuLibClient:
                 logger.error("错误: _final_cas_url 未设置。")
                 return None
 
-            logger.info(f"解析 URL: {self._final_cas_url}")
+            logger.info(f"解析 URL")
             parsed_url = urllib.parse.urlparse(str(self._final_cas_url))
             
             # H5 路由的参数在 fragment (#) 中 (匹配 ...#/cas/?cas=...)
@@ -451,7 +451,7 @@ class ZjuLibClient:
                 return None
                 
             cas_token = query_params['cas'][0]
-            logger.info(f"成功提取 cas_token: {cas_token}")
+            logger.info(f"成功提取 cas_token")
 
         except Exception as e:
             logger.error(f"解析 cas_token 时发生错误: {e}", exc_info=True)
@@ -1067,7 +1067,6 @@ def main():
             sys.exit(1)
     
     logger.info(f"--- 启动预约程序 ---")
-    logger.info(f"  学号: {studentid}")
     logger.info(f"  刷新间隔: {refresh_time} 秒")
     logger.info(f"  预约模式: {scope_mode} ({'仅二层' if scope_mode == 0 else '全部区域'})")
     
